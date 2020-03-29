@@ -12,7 +12,6 @@ import org.jabref.Globals;
 import org.jabref.JabRefException;
 import org.jabref.gui.AbstractViewModel;
 import org.jabref.gui.DialogService;
-import org.jabref.gui.GUIGlobals;
 import org.jabref.gui.JabRefFrame;
 import org.jabref.gui.util.FileDialogConfiguration;
 import org.jabref.logic.exporter.ExporterFactory;
@@ -51,13 +50,13 @@ public class PreferencesDialogViewModel extends AbstractViewModel {
                 new ExternalTabView(preferences, frame),
                 new GroupsTabView(preferences),
                 new EntryEditorTabView(preferences),
-                new BibtexKeyPatternPrefTab(preferences, frame.getCurrentBasePanel()),
+                new BibtexKeyPatternTabView(preferences),
                 new ImportTabView(preferences),
                 new ExportSortingTabView(preferences),
                 new NameFormatterTabView(preferences),
                 new XmpPrivacyTabView(preferences),
                 new AdvancedTabView(preferences),
-                new AppearancePrefsTab(dialogService, preferences)
+                new AppearanceTabView(preferences)
         );
     }
 
@@ -181,7 +180,6 @@ public class PreferencesDialogViewModel extends AbstractViewModel {
                             + Localization.lang("You must restart JabRef for this to come into effect."));
         }
 
-        GUIGlobals.updateEntryEditorColors();
         frame.setupAllTables();
         frame.getGlobalSearchBar().updateHintVisibility();
         dialogService.notify(Localization.lang("Preferences recorded."));

@@ -4,6 +4,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -33,7 +34,6 @@ import javafx.scene.text.Text;
 
 import org.jabref.gui.DialogService;
 import org.jabref.gui.DragAndDropDataFormats;
-import org.jabref.gui.GUIGlobals;
 import org.jabref.gui.StateManager;
 import org.jabref.gui.util.BindingsHelper;
 import org.jabref.gui.util.ControlHelper;
@@ -44,6 +44,7 @@ import org.jabref.gui.util.ViewModelTreeTableCellFactory;
 import org.jabref.logic.l10n.Localization;
 import org.jabref.model.entry.BibEntry;
 import org.jabref.model.groups.AllEntriesGroup;
+import org.jabref.preferences.PreferencesService;
 
 import org.controlsfx.control.textfield.CustomTextField;
 import org.controlsfx.control.textfield.TextFields;
@@ -60,12 +61,14 @@ public class GroupTreeView {
     @FXML private TreeTableView<GroupNodeViewModel> groupTree;
     @FXML private TreeTableColumn<GroupNodeViewModel, GroupNodeViewModel> mainColumn;
     @FXML private TreeTableColumn<GroupNodeViewModel, GroupNodeViewModel> numberColumn;
-    @FXML private TreeTableColumn<GroupNodeViewModel, GroupNodeViewModel> disclosureNodeColumn;
+    @FXML private TreeTableColumn<GroupNodeViewModel, GroupNodeViewModel> expansionNodeColumn;
     @FXML private CustomTextField searchField;
 
     @Inject private StateManager stateManager;
     @Inject private DialogService dialogService;
     @Inject private TaskExecutor taskExecutor;
+    @Inject private PreferencesService preferencesService;
+
     private GroupTreeViewModel viewModel;
     private CustomLocalDragboard localDragboard;
 
@@ -73,8 +76,8 @@ public class GroupTreeView {
 
     @FXML
     public void initialize() {
-        this.localDragboard = GUIGlobals.localDragboard;
-        viewModel = new GroupTreeViewModel(stateManager, dialogService, taskExecutor, localDragboard);
+        this.localDragboard = stateManager.getLocalDragboard();
+        viewModel = new GroupTreeViewModel(stateManager, dialogService, preferencesService, taskExecutor, localDragboard);
 
         // Set-up groups tree
         groupTree.getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
@@ -155,7 +158,7 @@ public class GroupTreeView {
                     group.toggleExpansion();
                     event.consume();
                 })
-                .install(disclosureNodeColumn);
+                .install(expansionNodeColumn);
 
         // Set pseudo-classes to indicate if row is root or sub-item ( > 1 deep)
         PseudoClass rootPseudoClass = PseudoClass.getPseudoClass("root");
@@ -197,6 +200,10 @@ public class GroupTreeView {
                     }
                 }
 
+                if (groupsToMove.size() > 0) {
+                    localDragboard.clearAll();
+                }
+
                 // Put the group nodes as content
                 Dragboard dragboard = treeTable.startDragAndDrop(TransferMode.MOVE);
                 // Display the group when dragging
@@ -232,14 +239,18 @@ public class GroupTreeView {
 
                 if (dragboard.hasContent(DragAndDropDataFormats.GROUP)) {
                     List<String> pathToSources = (List<String>) dragboard.getContent(DragAndDropDataFormats.GROUP);
+                    List<GroupNodeViewModel> changedGroups = new LinkedList<>();
                     for (String pathToSource : pathToSources) {
                         Optional<GroupNodeViewModel> source = viewModel.rootGroupProperty().get()
                                 .getChildByPath(pathToSource);
                         if (source.isPresent()) {
                             source.get().draggedOn(row.getItem(), ControlHelper.getDroppingMouseLocation(row, event));
+                            changedGroups.add(source.get());
                             success = true;
                         }
                     }
+                    groupTree.getSelectionModel().clearSelection();
+                    changedGroups.forEach(value -> selectNode(value, true));
                 }
 
                 if (localDragboard.hasBibEntries()) {
@@ -268,8 +279,21 @@ public class GroupTreeView {
     }
 
     private void selectNode(GroupNodeViewModel value) {
+        selectNode(value, false);
+    }
+
+    private void selectNode(GroupNodeViewModel value, boolean expandParents) {
         getTreeItemByValue(value)
-                .ifPresent(treeItem -> groupTree.getSelectionModel().select(treeItem));
+                .ifPresent(treeItem -> {
+                    if (expandParents) {
+                        TreeItem<GroupNodeViewModel> parent = treeItem.getParent();
+                        while (parent != null) {
+                            parent.setExpanded(true);
+                            parent = parent.getParent();
+                        }
+                    }
+                    groupTree.getSelectionModel().select(treeItem);
+                });
     }
 
     private Optional<TreeItem<GroupNodeViewModel>> getTreeItemByValue(GroupNodeViewModel value) {
@@ -281,7 +305,16 @@ public class GroupTreeView {
         if (root.getValue().equals(value)) {
             return Optional.of(root);
         }
-        return root.getChildren().stream().filter(child -> getTreeItemByValue(child, value).isPresent()).findFirst();
+
+        Optional<TreeItem<GroupNodeViewModel>> node = Optional.empty();
+        for (TreeItem<GroupNodeViewModel> child : root.getChildren()) {
+            node = getTreeItemByValue(child, value);
+            if (node.isPresent()) {
+                break;
+            }
+        }
+
+        return node;
     }
 
     private ContextMenu createContextMenuForGroup(GroupNodeViewModel group) {
